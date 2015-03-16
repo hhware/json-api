@@ -772,8 +772,8 @@ GET /articles/1?include=author,comments,comments.author
 A client **MAY** request that an endpoint return only specific [fields] in the
 response on a per-type basis by including a `fields[TYPE]` parameter.
 
-> Note: Only [fields] are affected; `type`, `id`, and (optionally) `self` are
-included as normal.
+> Note: Only [fields] are affected; `type`, `id`, `self` (if returned 
+by the server) and `meta` are not affected by `fields[TYPE]`. 
 
 The value of the `fields` parameter **MUST** be a comma-separated (U+002C
 COMMA, ",") list that refers to the name(s) of the fields to be returned.
