@@ -1,0 +1,825 @@
+<html>
+    <head>
+        <link rel="stylesheet" type="text/css" href="i415-p431.css">
+    </head>
+    <body>
+
+        <h2>
+            Example for <a href="https://github.com/json-api/json-api/pull/431">#431</a>: relationships with attributes vs relationships disguised as resources
+        </h2>
+
+        <p>
+        The example is a hierarchical data structure of containers which can contain/reference other containers via relationship "table of contents items", <tt>toc_items</tt>.
+        Containers are created as children of other containers, which is indicated by to-many relationship <tt>toc_items</tt> with <tt>kind=ORIG</tt>.
+        Only one parent of <tt>kind=ORIG</tt> is allowed per child, so relationship <tt>container.parent</tt> for each container is also build from this ToC item (it is <tt>null</tt> for the root container(s)).
+        In addition to that, arbitrary container subtrees can be "shared" with other containers in two ways, via references of <tt>kind=REF1</tt> or <tt>kind=REF2</tt>.
+        Child containers, regardless of the value of <tt>kind</tt>, are ordered within the ToC of their parent container.
+        </p>
+
+        <p>
+            For the sake of brevity, I omit members of all levels which are not essential for understanding of the examples.
+            Explanations refer to containers by values of their <tt>id</tt>, e.g., container "2".
+        </p>
+
+        <img src="i415-p431.png" width="90%" />
+
+        <table>
+            <tr>
+                <th width="10%">
+                </th>
+                <th width="45%">
+                    Relationships with attributes
+                </th>
+                <th width="45%">
+                    Relationships disguised as resources
+                </th>
+            </tr>
+            <tr>
+                <td><b>
+                    Warm-up
+                </b></td>
+                <td>
+                    <ol>
+                        <li>
+                            Incompatible with JSON API RC3.
+                        </li> 
+                        <li>
+                            ER model is simple: one entity and one relationship.
+                        </li> 
+                        <li>
+                            Relationship <tt>toc_items</tt> does not require member <tt>id</tt> (hence it is not used in examples).
+                        </li> 
+                        <li>
+                            This approach allows to naturally represent ordered relationships.
+                        </li> 
+                    </ol>
+                </td>
+                <td>
+                    <ol>
+                        <li>
+                            Compatible with JSON API RC3.
+                        </li> 
+                        <li>
+                            ER model is more complex than it needs to be: two entities and two relationships.
+                            The API is forced to expose a "technical" resource <tt>toc_item</tt>.
+                            Since number of entities and relationships is larger, the server has to provide more endpoints.
+                        </li> 
+                        <li>
+                            IDs are mandatory for ToC items, and the client has to keep track of them: 
+                            for every parent-child relationship, the client needs to know <tt>id</tt> of the ToC item in which it is stored (see <a href="#reorder">updating/reordering example</a>).
+                        </li> 
+                        <li>
+                            This approach is more demanding: bulk extension is effectively required to support <a href="#reorder">reordering</a>.
+                        </li> 
+                    </ol>
+                </td>
+            </tr>
+            <tr>
+                <td><b>
+                    Fetching all children of container "2"
+                </b></td>
+                <td>
+                    <p>
+                        The relationship <tt>container.parent</tt> can be made to contain the same attributes as the corresponding <tt>container.children</tt> or may include only some of them.
+                        The child container is always created with <tt>kind=ORIG</tt>, so the attribute <tt>kind</tt> can be safely omitted from <tt>container.parent</tt>.
+                        Order of the created child in the ToC of its parent does not have to be part of <tt>container.parent</tt> either, 
+                        but it is convenient to have it to be able to place the child in the specific spot of the ToC of its parent without the need for an extra API call for reordering
+                        (see the example for creation of containers). 
+                    </p>
+<div class="ccode">
+<div class="cbold"><pre>
+GET http://www.example.com/containers/2?include=children
+</pre></div>
+<div class="cblack"><pre>
+</pre></div>
+<div class="cblue"><pre>
+{
+  "data": {
+    "type": "containers",
+    "id": "2",
+    "title": "title2",
+    "links": {
+      "children": {
+        "linkage": [
+          { "type": "containers", "id": "3", "kind": "REF1", "order_number": "1" },
+          { "type": "containers", "id": "4", "kind": "ORIG", "order_number": "2" },
+          { "type": "containers", "id": "8", "kind": "ORIG", "order_number": "3" },
+          { "type": "containers", "id": "5", "kind": "REF2", "order_number": "4" }
+        ]
+      }
+    }
+  },
+  "included": [{
+    "type": "containers",
+    "id": "3",
+    "title": "title3",
+    "links": {
+      "parent": {
+        "linkage": { "type": "containers", "id": "1", "order_number": "1" }
+      }
+    }
+  },{
+    "type": "containers",
+    "id": "4",
+    "title": "title4",
+    "links": {
+      "parent": {
+        "linkage": { "type": "containers", "id": "2", "order_number": "2"  }
+      }
+    }
+  },{
+    "type": "containers",
+    "id": "5",
+    "title": "title5",
+    "links": {
+      "parent": {
+        "linkage": { "type": "containers", "id": "1", "order_number": "3" }
+      }
+    }
+  },{
+    "type": "containers",
+    "id": "8",
+    "title": "title8",
+    "links": {
+      "parent": {
+        "linkage": { "type": "containers", "id": "2", "order_number": "3" }
+      }
+    }
+  }]
+}
+</pre></div>
+</div>
+                </td>
+                <td>
+                    <p>
+                        This can be simplified depending on outcome of <a href="https://github.com/json-api/json-api/issues/497">#497</a>,
+                        but the output has to be polluted with ToC item resources, and the client has to make its way through them when building the hierarchy.
+                        This also results in the number of resources in top-lebel <tt>included</tt> being doubled compared to the alternative option.
+                    </p>
+<div class="ccode">
+<div class="cbold"><pre>
+GET http://www.example.com/containers/2?include=toc_items,toc_items.child
+</pre></div>
+<div class="cblack"><pre>
+</pre></div>
+<div class="cblue"><pre>
+{
+  "data": {
+    "type": "containers",
+    "id": "2",
+    "title": "title2",
+    "links": {
+      "children": {
+        "linkage": [
+          { "type": "toc_items", "id": "32" },
+          { "type": "toc_items", "id": "41" },
+          { "type": "toc_items", "id": "52" },
+          { "type": "toc_items", "id": "81" }
+        ]
+      }
+    }
+  },
+  "included": [{
+    "type": "toc_items",
+    "id": "32",
+    "kind": "REF1",
+    "order_number": "1",
+    "links": {
+      "parent": {
+        "linkage": { "type": "containers", "id": "2" }
+      },
+      "child": {
+        "linkage": { "type": "containers", "id": "3" }
+      }
+    }
+  },{
+    "type": "toc_items",
+    "id": "41",
+    "kind": "ORIG",
+    "order_number": "2",
+    "links": {
+      "parent": {
+        "linkage": { "type": "containers", "id": "2" }
+      },
+      "child": {
+        "linkage": { "type": "containers", "id": "4" }
+      }
+    }
+  },{
+    "type": "toc_items",
+    "id": "52",
+    "kind": "REF2",
+    "order_number": "4",
+    "links": {
+      "parent": {
+        "linkage": { "type": "containers", "id": "2" }
+      },
+      "child": {
+        "linkage": { "type": "containers", "id": "5" }
+      }
+    }
+  },{
+    "type": "toc_items",
+    "id": "81",
+    "kind": "ORIG",
+    "order_number": "3",
+    "links": {
+      "parent": {
+        "linkage": { "type": "containers", "id": "2" }
+      },
+      "child": {
+        "linkage": { "type": "containers", "id": "8" }
+      }
+    }
+  },{
+    "type": "containers",
+    "id": "3",
+    "title": "title3",
+    "links": {
+      "parent": {
+        "linkage": { "type": "toc_items", "id": "32" }
+      }
+    }
+  },{
+    "type": "containers",
+    "id": "4",
+    "title": "title4",
+    "links": {
+      "parent": {
+        "linkage": { "type": "toc_items", "id": "41" }
+      }
+    }
+  },{
+    "type": "containers",
+    "id": "5",
+    "title": "title5",
+    "links": {
+      "parent": {
+        "linkage": { "type": "toc_items", "id": "52" }
+      }
+    }
+  },{
+    "type": "containers",
+    "id": "8",
+    "title": "title8",
+    "links": {
+      "parent": {
+        "linkage": { "type": "toc_items", "id": "81" }
+      }
+    }
+  }]
+}
+</pre></div>
+</div>
+                </td>
+            </tr>
+            <tr>
+                <td><b>
+                    Creating container "8" as a child of container "2" and placing it to position 3 of the ToC of "2"
+                </b></td>
+                <td>
+                    <p>
+                        Doing it this way changes order of ToC items in the parent container, whose resource is not returned by this call.
+                        This complicates cache invalidation algorithms.
+                        To remove this problem, the API can have a convention to return the updated parent container as part of the response.
+                    </p>
+<div class="ccode">
+<div class="cbold"><pre>
+POST http://www.example.com/containers
+</pre></div>
+<div class="cblack"><pre>
+{
+  "data": {
+    "type": "containers",
+    "title": "title8",
+    "links": { 
+      "parent": { 
+        "linkage": { "type": "container", "id": "2", "order_number": "3" }
+      }
+    }
+  }
+}
+</pre></div>
+<div class="cblue"><pre>
+{
+  "data": {
+    "type": "containers",
+    "id": "8",
+    "title": "title8",
+    "links": { 
+      "parent": { 
+        "linkage": { "type": "container", "id": "2", "order_number": "3" }
+      }
+    }
+  }
+}
+</pre></div>
+</div>
+                </td>
+                <td>
+                    <p>
+                        For idiomatic JSON API, two API calls are required for container creation (unless <a href="https://github.com/json-api/json-api/issues/205">#205</a> is resolved).
+                        Container tree is in inconsistent state between these calls.
+                        An alternative is to provide a custom endpoint which creates both container and a ToC item tied to it in one call.
+                    </p>
+                    <p>
+                        <b>Option 1: idiomatic JSON API</b>
+                    </p>
+<div class="ccode">
+<div class="cbold"><pre>
+POST http://www.example.com/containers
+</pre></div>
+<div class="cblack"><pre>
+{
+  "data": {
+    "type": "containers",
+    "title": "title8"
+  }
+}
+</pre></div>
+<div class="cblue"><pre>
+{
+  "data": {
+    "type": "containers",
+    "id": "8",
+    "title": "title8",
+    "links": { 
+      "parent": null
+    }
+  }
+}
+</pre></div>
+</div>
+</br>
+<div class="ccode">
+<div class="cbold"><pre>
+POST http://www.example.com/toc_items
+</pre></div>
+<div class="cblack"><pre>
+{
+  "data": {
+    "type": "toc_items",
+    "order_number": "3",
+    "kind": "ORIG",
+    "links": {
+      "parent": {
+        "linkage": { "type": "containers", "id": "2" }
+      },
+      "child": {
+        "linkage": { "type": "containers", "id": "4" }
+      }
+    }
+  }
+}
+</pre></div>
+<div class="cblue"><pre>
+{
+  "data": {
+    "type": "toc_items",
+    "id": "81",
+    "order_number": "3",
+    "kind": "ORIG",
+    "links": {
+      "parent": {
+        "linkage": { "type": "containers", "id": "2" }
+      },
+      "child": {
+        "linkage": { "type": "containers", "id": "8" }
+      }
+    }
+  }
+}
+</pre></div>
+</div>
+                    <p>
+                        <b>Option 2: custom endpoint</b>
+                    </p>
+                    <p>
+                        This is not a very well thought-out example, just a quick illustration.
+                    </p>
+<div class="ccode">
+<div class="cbold"><pre>
+POST http://www.example.com/containers/2/child
+</pre></div>
+<div class="cblack"><pre>
+{
+  "data": {
+    "type": "containers",
+    "title": "title8",
+    "order_number": "3"
+  }
+}
+</pre></div>
+<div class="cblue"><pre>
+{
+  "data": {
+    "type": "containers",
+    "id": "8",
+    "title": "title8",
+    "links": { 
+      "parent": {
+        "linkage": { "type": "toc_items", "id": "81" }
+      },
+      "parent.parent": {
+        "linkage": { "type": "containers", "id": "2" }
+      }
+    }
+  }
+}
+</pre></div>
+</div>
+                </td>
+            </tr>
+            <tr>
+                <td><b>
+                    <a id="reorder">Editing ToC attributes and/or reordering children of container "2"</a>
+                </b></td>
+                <td>
+                    <p>
+                        Only one API call per parent container is required.
+                    </p>
+<div class="ccode">
+<div class="cbold"><pre>
+PATCH http://www.example.com/containers/2
+</pre></div>
+<div class="cblack"><pre>
+{
+  "data": {
+    "type": "containers",
+    "id": "2",
+    "links": {
+      "children": {
+        "linkage": [
+          { "type": "containers", "id": "3", "kind": "REF2", "order_number": "1" },
+          { "type": "containers", "id": "4", "kind": "ORIG", "order_number": "3" },
+          { "type": "containers", "id": "8", "kind": "ORIG", "order_number": "2" },
+          { "type": "containers", "id": "5", "kind": "REF1", "order_number": "4" }
+        ]
+      }
+    }
+  }
+}
+</pre></div>
+<div class="cblue"><pre>
+{
+  "data": {
+    "type": "containers",
+    "id": "2",
+    "title": "title2",
+    "links": {
+      "children": {
+        "linkage": [
+          { "type": "containers", "id": "3", "kind": "REF2", "order_number": "1" },
+          { "type": "containers", "id": "8", "kind": "ORIG", "order_number": "2" },
+          { "type": "containers", "id": "4", "kind": "ORIG", "order_number": "3" },
+          { "type": "containers", "id": "5", "kind": "REF1", "order_number": "4" }
+        ]
+      }
+    }
+  }
+}
+</pre></div>
+</div>
+                </td>
+                <td>
+                    <p>
+                        Editing of multiple attributes of a single ToC item can be performed in one API call.
+                        To edit multiple ToC items, either multiple calls or bulk extension is required.
+                    </p>
+                    <p>
+                        When reordering without bulk extension, it is assumed that the server places the ToC item at the requested place and 
+                        automatically recalculates other order numbers in the given ToC into a set of consequent natural numbers.
+                        Unless I am missing something, performing reordering in multiple steps either requires the client to keep track of (or calculate) the difference between initial and target sequences 
+                        or to do it the dumb way: PATCH all items in the sequence (for example, starting from the end wrt target order, illustrated below).
+                        The latter requires the number of API calls equal to the number of ToC items, regardless of how many of them actually have to be reordered.
+                        The longer the ToC, the higher are the chances of interference in a concurrent environment.
+                    </p>
+                    <p>
+                        Another problem with reordering without bulk extension would be that when order number of one ToC item changes, 
+                        order numbers of all other ToC items for the given parent container are recalculated automatically.
+                        This complicates cache invalidation algorithms.
+                    </p>
+                    <p>
+                        All these purely technical complications present an unnecessary and unreasonable burden for both client and server and
+                        make bulk extension an effective requirement in order for the API to support reordering functionality.
+                    </p>
+                    <p>
+                        <b>Option 1: without bulk extension</b>
+                    </p>
+<div class="ccode">
+<div class="cbold"><pre>
+PATCH http://www.example.com/toc_items/52
+</pre></div>
+<div class="cblack"><pre>
+{
+  "data": {
+    "type": "toc_items",
+    "id": "52",
+    "kind": "REF1",
+    "order_number": "1"
+  }
+}
+</pre></div>
+<div class="cblue"><pre>
+{
+  "data": {
+    "type": "toc_items",
+    "id": "52",
+    "kind": "REF1",
+    "order_number": "1"
+    "links": {
+      "parent": {
+        "linkage": { "type": "containers", "id": "2" }
+      },
+      "child": {
+        "linkage": { "type": "containers", "id": "5" }
+      }
+    }
+  }
+}
+</pre></div>
+</div>
+</br>
+<div class="ccode">
+<div class="cbold"><pre>
+PATCH http://www.example.com/toc_items/41
+</pre></div>
+<div class="cblack"><pre>
+{
+  "data": {
+    "type": "toc_items",
+    "id": "41",
+    "kind": "ORIG",
+    "order_number": "1"
+  }
+}
+</pre></div>
+<div class="cblue"><pre>
+{
+  "data": {
+    "type": "toc_items",
+    "id": "41",
+    "kind": "ORIG",
+    "order_number": "1"
+    "links": {
+      "parent": {
+        "linkage": { "type": "containers", "id": "2" }
+      },
+      "child": {
+        "linkage": { "type": "containers", "id": "4" }
+      }
+    }
+  }
+}
+</pre></div>
+</div>
+</br>
+<div class="ccode">
+<div class="cbold"><pre>
+PATCH http://www.example.com/toc_items/81
+</pre></div>
+<div class="cblack"><pre>
+{
+  "data": {
+    "type": "toc_items",
+    "id": "81",
+    "kind": "ORIG",
+    "order_number": "1"
+  }
+}
+</pre></div>
+<div class="cblue"><pre>
+{
+  "data": {
+    "type": "toc_items",
+    "id": "81",
+    "kind": "ORIG",
+    "order_number": "1"
+    "links": {
+      "parent": {
+        "linkage": { "type": "containers", "id": "2" }
+      },
+      "child": {
+        "linkage": { "type": "containers", "id": "8" }
+      }
+    }
+  }
+}
+</pre></div>
+</div>
+</br>
+<div class="ccode">
+<div class="cbold"><pre>
+PATCH http://www.example.com/toc_items/32
+</pre></div>
+<div class="cblack"><pre>
+{
+  "data": {
+    "type": "toc_items",
+    "id": "32",
+    "kind": "REF2",
+    "order_number": "1"
+  }
+}
+</pre></div>
+<div class="cblue"><pre>
+{
+  "data": {
+    "type": "toc_items",
+    "id": "32",
+    "kind": "REF2",
+    "order_number": "1"
+    "links": {
+      "parent": {
+        "linkage": { "type": "containers", "id": "2" }
+      },
+      "child": {
+        "linkage": { "type": "containers", "id": "3" }
+      }
+    }
+  }
+}
+</pre></div>
+</div>
+                    <p>
+                        <b>Option 2: with bulk extension</b>
+                    </p>
+<div class="ccode">
+<div class="cbold"><pre>
+PATCH http://www.example.com/toc_items
+Content-Type: application/vnd.api+json; ext="bulk"
+</pre></div>
+<div class="cblack"><pre>
+{
+  "data": [{
+    "type": "toc_items",
+    "id": "52",
+    "kind": "REF1",
+    "order_number": "4"
+  },{
+    "type": "toc_items",
+    "id": "41",
+    "kind": "ORIG",
+    "order_number": "3"
+  },{
+    "type": "toc_items",
+    "id": "81",
+    "kind": "ORIG",
+    "order_number": "2"
+  },{
+    "type": "toc_items",
+    "id": "32",
+    "kind": "REF2",
+    "order_number": "1"
+  }]
+}
+</pre></div>
+<div class="cblue"><pre>
+{
+  "data": [{
+    "type": "toc_items",
+    "id": "52",
+    "kind": "REF1",
+    "order_number": "4"
+    "links": {
+      "parent": {
+        "linkage": { "type": "containers", "id": "2" }
+      },
+      "child": {
+        "linkage": { "type": "containers", "id": "5" }
+      }
+    }
+  },{
+    "type": "toc_items",
+    "id": "41",
+    "kind": "ORIG",
+    "order_number": "3"
+    "links": {
+      "parent": {
+        "linkage": { "type": "containers", "id": "2" }
+      },
+      "child": {
+        "linkage": { "type": "containers", "id": "4" }
+      }
+    }
+  },{
+    "type": "toc_items",
+    "id": "81",
+    "kind": "ORIG",
+    "order_number": "2"
+    "links": {
+      "parent": {
+        "linkage": { "type": "containers", "id": "2" }
+      },
+      "child": {
+        "linkage": { "type": "containers", "id": "8" }
+      }
+    }
+  },{
+    "type": "toc_items",
+    "id": "32",
+    "kind": "REF2",
+    "order_number": "1"
+    "links": {
+      "parent": {
+        "linkage": { "type": "containers", "id": "2" }
+      },
+      "child": {
+        "linkage": { "type": "containers", "id": "3" }
+      }
+    }
+  }]
+}
+</pre></div>
+</div>
+                </td>
+            </tr>
+            <tr>
+                <td><b>
+                    Deleting container "3"
+                </b></td>
+                <td>
+                    <p>
+                        Deletion of a container is performed in one API call.
+                        All associated relationships are assumed to be deleted together with the container.
+                    </p>
+<div class="ccode">
+<div class="cbold"><pre>
+DELETE http://www.example.com/containers/3
+</pre></div>
+<div class="cblack"><pre>
+</pre></div>
+<div class="cblue"><pre>
+</pre></div>
+</div>
+                </td>
+                <td>
+                    <p>
+                        Deletion of a container can be performed in one API call assuming the server deletes all ToC items tied to it (illustarted below).
+                        In this case, the API should not provide endpoints for direct deletion of ToC items, which is inconsistent with semantics of their creation.
+                        Also, cache invalidation should account for this.
+                        All associated relationships are assumed to be deleted together with the container and ToC items.
+                    </p>
+<div class="ccode">
+<div class="cbold"><pre>
+DELETE http://www.example.com/containers/3
+</pre></div>
+<div class="cblack"><pre>
+</pre></div>
+<div class="cblue"><pre>
+</pre></div>
+</div>
+                </td>
+            </tr>
+            <tr>
+                <td><b>
+                    Sorting related resources by values of relationship attributes and related resource attributes on the example of container "2"
+                </b></td>
+                <td>
+                    <p>
+                        This example may look peculiar, so I placed it in the end.
+                    </p>
+                    <p>
+                        Each particular pair of linkage object / related resource has attributes in the related resource and in the linkage object itself.
+                        There might be circumstances when it would be useful to sort linkage array either by values
+                        of linkage attributes, or by values of related object attributes, or by both at the same time.
+                        This example illustrates the latter.
+                    </p>
+<div class="ccode">
+<div class="cbold"><pre>
+GET http://www.example.com/containers/2?sort[data.links.children]=+data.links.children.kind,-title
+</pre></div>
+<div class="cblack"><pre>
+</pre></div>
+<div class="cblue"><pre>
+{
+  "data": {
+    "type": "containers",
+    "id": "2",
+    "title": "title2",
+    "links": {
+      "children": {
+        "linkage": [
+          { "type": "containers", "id": "8", "kind": "ORIG", "order_number": "3" },
+          { "type": "containers", "id": "4", "kind": "ORIG", "order_number": "2" },
+          { "type": "containers", "id": "3", "kind": "REF1", "order_number": "1" },
+          { "type": "containers", "id": "5", "kind": "REF2", "order_number": "4" }
+        ]
+      }
+    }
+  }
+}
+</pre></div>
+</div>
+                </td>
+                <td>
+                    <p>
+                        Since "relationship attributes" and related resource attributes belong to different resources, 
+                        an attempt to achieve this within idiomatic JSON API would look pretty awkward.
+                        I believe that custom endpoint would be the only solution.
+                    </p>
+                </td>
+            </tr>
+        </table>
+    </body>
+</html>
